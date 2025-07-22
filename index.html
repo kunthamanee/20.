@@ -1,82 +1,41 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Teachable Machine Image Model (Mobile)</title>
+  <meta charset="UTF-8">
+  <title>Teachable Machine + MQTT Secure</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image"></script>
   <script src="https://unpkg.com/paho-mqtt/mqttws31.min.js"></script>
-
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      margin: 0;
-      padding: 0;
-    }
-    #webcam-container {
-      max-width: 100%;
-      margin: 10px auto;
-    }
-    video {
-      max-width: 100%;
-      height: auto;
-    }
-    #label-container {
-      margin: 10px;
-      font-size: 1.2em;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 1em;
-      margin: 5px;
-    }
+    video { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 10px; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; }
   </style>
 </head>
 <body>
-  <div>Teachable Machine Image Model (Mobile)</div>
-  <button type="button" onclick="init('environment')">Start (Back Camera)</button>
-  <button type="button" onclick="init('user')">Start (Front Camera)</button>
-  <button type="button" onclick="stop()">Stop</button>
-  <div id="webcam-container"></div>
-  <div id="label-container"></div>
+  <h2>Teachable Machine + MQTT (Secure WSS)</h2>
+  <video id="webcam" autoplay playsinline></video>
+  <p>ผลลัพธ์: <span id="result">-</span></p>
 
-  <script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
+  <script>
+    // --------- Teachable Machine -------------
+    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/"; // <-- ใส่โมเดลของคุณ
+    let model, webcam, maxPredictions;
+    const resultDisplay = document.getElementById("result");
 
-    let model, webcam, labelContainer, maxPredictions;
-    let client;
-
-    async function init(facingMode) {
+    async function init() {
       const modelURL = URL + "model.json";
       const metadataURL = URL + "metadata.json";
 
       model = await tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
 
-      webcam = new tmImage.Webcam(224, 224, false);
-      try {
-        await webcam.setup({ facingMode: facingMode });
-        await webcam.play();
-        if (!webcam.canvas) {
-          throw new Error("Webcam canvas is not initialized");
-        }
-        console.log("Webcam initialized");
-        window.requestAnimationFrame(loop);
-      } catch (e) {
-        console.error("Webcam setup failed:", e);
-        document.getElementById("label-container").innerText = "Error: " + e.message;
-        return;
-      }
+      webcam = new tmImage.Webcam(200, 200, true);
+      await webcam.setup();
+      await webcam.play();
+      window.requestAnimationFrame(loop);
 
-      document.getElementById("webcam-container").appendChild(webcam.canvas);
-      labelContainer = document.getElementById("label-container");
-      labelContainer.innerHTML = "";
-      for (let i = 0; i < maxPredictions; i++) {
-        labelContainer.appendChild(document.createElement("div"));
-      }
-
-      mqttConnect();
+      document.getElementById("webcam").appendChild(webcam.canvas);
     }
 
     async function loop() {
@@ -87,55 +46,42 @@
 
     async function predict() {
       const prediction = await model.predict(webcam.canvas);
-      let topClass = prediction[0];
+      const highest = prediction.reduce((max, p) => p.probability > max.probability ? p : max);
+      resultDisplay.textContent = highest.className;
 
-      for (let i = 0; i < maxPredictions; i++) {
-        const p = prediction[i];
-        const classPrediction = p.className + ": " + p.probability.toFixed(2);
-        labelContainer.childNodes[i].innerHTML = classPrediction;
-
-        if (p.probability > topClass.probability) {
-          topClass = p;
-        }
-      }
-
-      if (topClass.probability > 0.8) {
-        sendMQTT(topClass.className);
+      if (mqttClient && mqttClient.isConnected()) {
+        const message = new Paho.MQTT.Message(highest.className);
+        message.destinationName = "ktmn"; // <-- ชื่อ Topic ที่เปลี่ยนแล้ว
+        mqttClient.send(message);
       }
     }
 
-    function stop() {
-      if (webcam) {
-        webcam.stop();
-        document.getElementById("webcam-container").innerHTML = '';
-        document.getElementById("label-container").innerHTML = '';
-      }
-    }
+    // --------- MQTT (Secure WSS) -------------
+    const mqttClient = new Paho.MQTT.Client("mqtt-dashboard.com", 8884, "clientId-" + Math.floor(Math.random() * 10000));
 
-    function mqttConnect() {
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "web_" + Math.floor(Math.random() * 10000));
-      client.connect({
-        onSuccess: () => {
-          console.log("Connected to MQTT (HiveMQ)");
-        },
-        onFailure: (e) => {
-          console.error("MQTT connection failed:", e.errorMessage);
-        }
-      });
-      client.onConnectionLost = (response) => {
-        console.warn("MQTT connection lost:", response.errorMessage);
-      };
-    }
-
-    function sendMQTT(message) {
-      if (client && client.isConnected()) {
-        const topic = "ktmn";
-        const msg = new Paho.MQTT.Message(message);
-        msg.destinationName = topic;
-        client.send(msg);
-        console.log("MQTT message sent:", message);
+    mqttClient.onConnectionLost = function (responseObject) {
+      if (responseObject.errorCode !== 0) {
+        console.log("Connection lost: " + responseObject.errorMessage);
       }
-    }
+    };
+
+    mqttClient.onMessageArrived = function (message) {
+      console.log("MQTT Message Arrived: " + message.payloadString);
+    };
+
+    mqttClient.connect({
+      useSSL: true,
+      onSuccess: function () {
+        console.log("Connected to MQTT broker (SSL)");
+        mqttClient.subscribe("ktmn"); // <-- เปลี่ยนชื่อ Topic ตรงนี้ด้วย
+      },
+      onFailure: function (err) {
+        console.error("MQTT connection failed:", err);
+      }
+    });
+
+    // ---------- Start -------------
+    init();
   </script>
 </body>
 </html>
