@@ -2,13 +2,9 @@
 <html>
 <head>
   <title>Teachable Machine Image Model (Mobile)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
-  <!-- Libraries -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
-  <script src="https://unpkg.com/paho-mqtt/mqttws31.min.js"></script>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- ทำ responsive -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -35,34 +31,18 @@
     }
   </style>
 </head>
-
 <body>
-  <h2>Teachable Machine Image Model (Mobile)</h2>
-  <button onclick="init('environment')">Start (Back Camera)</button>
-  <button onclick="init('user')">Start (Front Camera)</button>
-  <button onclick="stop()">Stop</button>
+  <div>Teachable Machine Image Model (Mobile)</div>
+  <button type="button" onclick="init('environment')">Start (Back Camera)</button>
+  <button type="button" onclick="init('user')">Start (Front Camera)</button>
+  <button type="button" onclick="stop()">Stop</button>
   <div id="webcam-container"></div>
   <div id="label-container"></div>
 
-  <script>
-    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/"; // เปลี่ยนตามโมเดลของคุณ
+  <script type="text/javascript">
+    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
+
     let model, webcam, labelContainer, maxPredictions;
-
-    // MQTT settings
-    const mqttHost = "broker.hivemq.com";
-    const mqttPort = 8000;
-    const mqttTopic = "teachable/result";
-    const mqttClientId = "tm-client-" + Math.random().toString(16).substr(2, 8);
-    let mqttClient;
-
-    function connectMQTT() {
-      mqttClient = new Paho.MQTT.Client(mqttHost, mqttPort, mqttClientId);
-      mqttClient.connect({
-        onSuccess: () => console.log("✅ Connected to MQTT"),
-        onFailure: (e) => console.error("❌ MQTT Failed:", e),
-        useSSL: false
-      });
-    }
 
     async function init(facingMode) {
       const modelURL = URL + "model.json";
@@ -71,27 +51,28 @@
       model = await tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
 
-      webcam = new tmImage.Webcam(224, 224, true);
+      // ตั้งค่า Webcam สำหรับมือถือ โดยระบุ facingMode
+      webcam = new tmImage.Webcam(224, 224, false); // ใช้ 224x224 เหมือนเดิม
       try {
-        await webcam.setup({ facingMode: facingMode });
+        await webcam.setup({ facingMode: facingMode }); // เลือกกล้องหน้า (user) หรือหลัง (environment)
         await webcam.play();
+        if (!webcam.canvas) {
+          throw new Error("Webcam canvas is not initialized");
+        }
+        console.log("Webcam initialized, width:", webcam.canvas.width, "facingMode:", facingMode);
         window.requestAnimationFrame(loop);
       } catch (e) {
-        console.error("🚫 Webcam error:", e);
+        console.error("Webcam setup failed:", e);
         document.getElementById("label-container").innerText = "Error: " + e.message;
         return;
       }
 
-      document.getElementById("webcam-container").innerHTML = '';
       document.getElementById("webcam-container").appendChild(webcam.canvas);
-
       labelContainer = document.getElementById("label-container");
-      labelContainer.innerHTML = '';
+      labelContainer.innerHTML = ""; // ล้างผลลัพธ์เก่า
       for (let i = 0; i < maxPredictions; i++) {
         labelContainer.appendChild(document.createElement("div"));
       }
-
-      connectMQTT(); // Connect MQTT
     }
 
     async function loop() {
@@ -102,23 +83,9 @@
 
     async function predict() {
       const prediction = await model.predict(webcam.canvas);
-      let best = prediction[0];
-
-      for (let i = 0; i < prediction.length; i++) {
-        const classPrediction = `${prediction[i].className}: ${prediction[i].probability.toFixed(2)}`;
+      for (let i = 0; i < maxPredictions; i++) {
+        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
         labelContainer.childNodes[i].innerHTML = classPrediction;
-
-        if (prediction[i].probability > best.probability) {
-          best = prediction[i];
-        }
-      }
-
-      // Send best result to MQTT
-      if (mqttClient && mqttClient.isConnected()) {
-        const message = new Paho.MQTT.Message(best.className);
-        message.destinationName = mqttTopic;
-        mqttClient.send(message);
-        console.log("📡 Sent to MQTT:", best.className);
       }
     }
 
