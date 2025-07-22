@@ -37,31 +37,29 @@
 </head>
 
 <body>
-  <div>Teachable Machine Image Model (Mobile)</div>
-  <button type="button" onclick="init('environment')">Start (Back Camera)</button>
-  <button type="button" onclick="init('user')">Start (Front Camera)</button>
-  <button type="button" onclick="stop()">Stop</button>
+  <h2>Teachable Machine Image Model (Mobile)</h2>
+  <button onclick="init('environment')">Start (Back Camera)</button>
+  <button onclick="init('user')">Start (Front Camera)</button>
+  <button onclick="stop()">Stop</button>
   <div id="webcam-container"></div>
   <div id="label-container"></div>
 
   <script>
-    // Teachable Machine Model URL
-    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
-
+    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/"; // เปลี่ยนตามโมเดลของคุณ
     let model, webcam, labelContainer, maxPredictions;
 
-    // MQTT Config
-    const mqttBroker = "broker.hivemq.com";
+    // MQTT settings
+    const mqttHost = "broker.hivemq.com";
     const mqttPort = 8000;
     const mqttTopic = "teachable/result";
     const mqttClientId = "tm-client-" + Math.random().toString(16).substr(2, 8);
     let mqttClient;
 
     function connectMQTT() {
-      mqttClient = new Paho.MQTT.Client(mqttBroker, mqttPort, mqttClientId);
+      mqttClient = new Paho.MQTT.Client(mqttHost, mqttPort, mqttClientId);
       mqttClient.connect({
-        onSuccess: () => console.log("Connected to MQTT broker"),
-        onFailure: (e) => console.error("MQTT connection failed", e),
+        onSuccess: () => console.log("✅ Connected to MQTT"),
+        onFailure: (e) => console.error("❌ MQTT Failed:", e),
         useSSL: false
       });
     }
@@ -73,26 +71,27 @@
       model = await tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
 
-      // Set up webcam
-      webcam = new tmImage.Webcam(224, 224, false);
+      webcam = new tmImage.Webcam(224, 224, true);
       try {
         await webcam.setup({ facingMode: facingMode });
         await webcam.play();
         window.requestAnimationFrame(loop);
       } catch (e) {
-        console.error("Webcam setup failed:", e);
+        console.error("🚫 Webcam error:", e);
         document.getElementById("label-container").innerText = "Error: " + e.message;
         return;
       }
 
+      document.getElementById("webcam-container").innerHTML = '';
       document.getElementById("webcam-container").appendChild(webcam.canvas);
+
       labelContainer = document.getElementById("label-container");
-      labelContainer.innerHTML = "";
+      labelContainer.innerHTML = '';
       for (let i = 0; i < maxPredictions; i++) {
         labelContainer.appendChild(document.createElement("div"));
       }
 
-      connectMQTT(); // เชื่อมต่อ MQTT เมื่อ init เริ่ม
+      connectMQTT(); // Connect MQTT
     }
 
     async function loop() {
@@ -103,23 +102,23 @@
 
     async function predict() {
       const prediction = await model.predict(webcam.canvas);
-      let resultString = "";
+      let best = prediction[0];
 
-      for (let i = 0; i < maxPredictions; i++) {
-        const classPrediction = prediction[i].className + ": " + prediction[i].probability.toFixed(2);
+      for (let i = 0; i < prediction.length; i++) {
+        const classPrediction = `${prediction[i].className}: ${prediction[i].probability.toFixed(2)}`;
         labelContainer.childNodes[i].innerHTML = classPrediction;
-        resultString += classPrediction + "\n";
+
+        if (prediction[i].probability > best.probability) {
+          best = prediction[i];
+        }
       }
 
-      // ส่งผลลัพธ์ที่มีค่าความน่าจะเป็นสูงสุดไปยัง MQTT
-      const best = prediction.reduce((a, b) => a.probability > b.probability ? a : b);
-      const messageText = best.className;
-
+      // Send best result to MQTT
       if (mqttClient && mqttClient.isConnected()) {
-        const message = new Paho.MQTT.Message(messageText);
+        const message = new Paho.MQTT.Message(best.className);
         message.destinationName = mqttTopic;
         mqttClient.send(message);
-        console.log("Sent to MQTT:", messageText);
+        console.log("📡 Sent to MQTT:", best.className);
       }
     }
 
@@ -133,4 +132,3 @@
   </script>
 </body>
 </html>
-
