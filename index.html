@@ -107,18 +107,16 @@
     }  
   
     function mqttConnect() {  
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "web_" + Math.floor(Math.random() * 10000));  
-      client.connect({  
-        onSuccess: () => {  
-          console.log("Connected to MQTT (HiveMQ)");  
-        },  
-        onFailure: (e) => {  
-          console.error("MQTT connection failed:", e.errorMessage);  
-        }  
-      });  
-      client.onConnectionLost = (response) => {  
-        console.warn("MQTT connection lost:", response.errorMessage);  
-      };  
+      client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "web_" + Math.floor(Math.random() * 10000));
+client.connect({
+  useSSL: true, // ต้องเพิ่มบรรทัดนี้เพื่อใช้ wss://
+  onSuccess: () => {
+    console.log("Connected to MQTT (Secure WebSocket)");
+  },
+  onFailure: (e) => {
+    console.error("MQTT connection failed:", e.errorMessage);
+  }
+});
     }  
   
     function sendMQTT(message) {  
