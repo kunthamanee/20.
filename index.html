@@ -106,17 +106,17 @@
 
     function mqttConnect() {
       const clientId = "web_" + Math.floor(Math.random() * 10000);
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8884, clientId);
+      client = new Paho.MQTT.Client("mqtt-dashboard.com", 8884, "web_" + Math.floor(Math.random() * 10000));
 
-      client.connect({
-        useSSL: true,
-        onSuccess: () => {
-          console.log("Connected to MQTT broker with client ID:", clientId);
-        },
-        onFailure: (e) => {
-          console.error("MQTT connection failed:", e.errorMessage);
-        }
-      });
+client.connect({
+  useSSL: true,
+  onSuccess: () => {
+    console.log("Connected to mqtt-dashboard.com");
+  },
+  onFailure: (e) => {
+    console.error("Connection failed:", e.errorMessage);
+  }
+});
     }
 
     function sendMQTT(message) {
