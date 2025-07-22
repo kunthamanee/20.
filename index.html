@@ -108,7 +108,7 @@
   
     function mqttConnect() {  
       client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "web_" + Math.floor(Math.random() * 10000));
-  client.connect({
+    client.connect({
   useSSL: true, // ต้องเพิ่มบรรทัดนี้เพื่อใช้ wss://
   onSuccess: () => {
     console.log("Connected to MQTT (Secure WebSocket)");
