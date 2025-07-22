@@ -3,12 +3,8 @@
 <head>
   <title>Teachable Machine Image Model (Mobile)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- Teachable Machine -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-
-  <!-- MQTT client -->
   <script src="https://unpkg.com/paho-mqtt/mqttws31.min.js"></script>
 
   <style>
@@ -46,9 +42,10 @@
   <div id="label-container"></div>
 
   <script type="text/javascript">
-    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/"; // <-- เปลี่ยนเป็น URL ของโมเดลคุณ
+    const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
 
     let model, webcam, labelContainer, maxPredictions;
+    let client;
 
     async function init(facingMode) {
       const modelURL = URL + "model.json";
@@ -61,7 +58,9 @@
       try {
         await webcam.setup({ facingMode: facingMode });
         await webcam.play();
-        if (!webcam.canvas) throw new Error("Webcam canvas is not initialized");
+        if (!webcam.canvas) {
+          throw new Error("Webcam canvas is not initialized");
+        }
         console.log("Webcam initialized");
         window.requestAnimationFrame(loop);
       } catch (e) {
@@ -77,7 +76,7 @@
         labelContainer.appendChild(document.createElement("div"));
       }
 
-      mqttConnect(); // เริ่มเชื่อมต่อ MQTT
+      mqttConnect();
     }
 
     async function loop() {
@@ -88,18 +87,20 @@
 
     async function predict() {
       const prediction = await model.predict(webcam.canvas);
-      let highest = prediction[0];
+      let topClass = prediction[0];
 
       for (let i = 0; i < maxPredictions; i++) {
         const p = prediction[i];
         const classPrediction = p.className + ": " + p.probability.toFixed(2);
         labelContainer.childNodes[i].innerHTML = classPrediction;
-        if (p.probability > highest.probability) highest = p;
+
+        if (p.probability > topClass.probability) {
+          topClass = p;
+        }
       }
 
-      // ส่งผ่าน MQTT ถ้ามั่นใจเกิน 0.8
-      if (highest.probability > 0.8) {
-        sendMQTT(highest.className);
+      if (topClass.probability > 0.8) {
+        sendMQTT(topClass.className);
       }
     }
 
@@ -111,21 +112,16 @@
       }
     }
 
-    // ---------------- MQTT SECTION ----------------
-    let client;
-
     function mqttConnect() {
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "web_" + parseInt(Math.random() * 10000));
-
+      client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "web_" + Math.floor(Math.random() * 10000));
       client.connect({
         onSuccess: () => {
-          console.log("✅ MQTT connected to HiveMQ");
+          console.log("Connected to MQTT (HiveMQ)");
         },
         onFailure: (e) => {
-          console.error("❌ MQTT connection failed:", e.errorMessage);
+          console.error("MQTT connection failed:", e.errorMessage);
         }
       });
-
       client.onConnectionLost = (response) => {
         console.warn("MQTT connection lost:", response.errorMessage);
       };
@@ -137,10 +133,9 @@
         const msg = new Paho.MQTT.Message(message);
         msg.destinationName = topic;
         client.send(msg);
-        console.log("📤 Sent via MQTT:", message);
+        console.log("MQTT message sent:", message);
       }
     }
   </script>
 </body>
 </html>
-
