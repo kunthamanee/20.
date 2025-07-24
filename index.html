@@ -106,20 +106,22 @@
     }
 
     function mqttConnect() {
-      const clientId = "web_" + Math.floor(Math.random() * 10000);
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8000, clientId);
+  const clientId = "web_" + Math.floor(Math.random() * 10000);
+  client = new Paho.MQTT.Client("broker.hivemq.com", 8884, clientId);
 
-      client.connect({
-        useSSL: false,  // เพราะพอร์ต 8000 ไม่ใช่ wss
-        onSuccess: () => {
-          console.log("Connected to mqtt-dashboard.com");
-          isConnected = true;
-        },
-        onFailure: (e) => {
-          console.error("Connection failed:", e.errorMessage);
-          isConnected = false;
-        }
-      });
+  client.connect({
+    useSSL: true,  // ต้องเป็น true สำหรับพอร์ต 8884 (wss)
+    onSuccess: () => {
+      console.log("Connected to mqtt-dashboard.com with SSL");
+      isConnected = true;
+    },
+    onFailure: (e) => {
+      console.error("Connection failed:", e.errorMessage);
+      isConnected = false;
+    }
+  });
+}
+
     }
 
     function sendMQTT(message) {
