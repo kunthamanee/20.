@@ -11,12 +11,22 @@
   <div id="label-container"></div>
 
 <script>
-  const URL = "https://teachablemachine.withgoogle.com/models/https://teachablemachine.withgoogle.com/models/klxDOYTDp//"; // <-- ใส่ลิงก์โมเดลของคุณ
+  // URL โมเดล Teachable Machine
+  const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
+
   let model, webcam, labelContainer, maxPredictions;
 
-  // MQTT config
-  const client = new Paho.MQTT.Client("broker.hivemq.com", 8000, "client_" + Math.random());
-  client.connect({ onSuccess: () => console.log("MQTT connected!") });
+  // สร้าง MQTT client
+  const client = new Paho.MQTT.Client("broker.hivemq.com", 8884, "client_" + Math.random());
+
+  client.connect({
+    onSuccess: () => {
+      console.log("MQTT connected");
+    },
+    onFailure: (e) => {
+      console.error("MQTT connect error:", e.errorMessage);
+    }
+  });
 
   async function init() {
     const modelURL = URL + "model.json";
@@ -55,7 +65,8 @@
       }
     }
 
-    if (topProb > 0.7) {
+    // ส่งข้อความไปยัง MQTT topic "ktmn" เมื่อมั่นใจมากกว่า 0.7
+    if (topProb > 0.7 && client.isConnected()) {
       let message = new Paho.MQTT.Message(topClass);
       message.destinationName = "ktmn";
       client.send(message);
@@ -65,3 +76,4 @@
 </script>
 </body>
 </html>
+
