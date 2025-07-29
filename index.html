@@ -19,9 +19,8 @@
     const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
     let model, webcam, labelContainer, maxPredictions;
     let client, isConnected = false;
-    let lastSent = "", lastSentTime = 0;
-    let isPaused = false;
-    const sendCooldown = 5000; // 5 วินาที
+    let lastClassName = "";
+    let isWaiting = false;
 
     async function init(facingMode) {
       model = await tmImage.load(URL + "model.json", URL + "metadata.json");
@@ -40,14 +39,14 @@
     }
 
     async function loop() {
-      if (!isPaused) {
-        webcam.update();
-        await predict();
-      }
+      webcam.update();
+      await predict();
       window.requestAnimationFrame(loop);
     }
 
     async function predict() {
+      if (isWaiting) return;
+
       const prediction = await model.predict(webcam.canvas);
       const topClass = prediction.reduce((max, p) => p.probability > max.probability ? p : max);
 
@@ -55,21 +54,31 @@
         labelContainer.childNodes[i].innerHTML = `${p.className}: ${p.probability.toFixed(2)}`;
       });
 
-      const now = Date.now();
-      if (topClass.probability > 0.9 && (topClass.className !== lastSent || now - lastSentTime > sendCooldown)) {
+      if (topClass.probability >= 0.9) {
+        isWaiting = true;
+
+        // แสดงผลลัพธ์ค้างไว้ 5 วิ
+        console.log("พบความมั่นใจสูง: รอ 5 วิ");
+        await delay(5000);
+
+        // ส่งข้อมูลไปยัง MQTT ใช้เวลา 3 วิ
         const msg = JSON.stringify({
           type: topClass.className,
           confidence: topClass.probability.toFixed(2)
         });
-        sendMQTT(msg);
-        lastSent = topClass.className;
-        lastSentTime = now;
 
-        isPaused = true;
-        setTimeout(() => {
-          isPaused = false;
-        }, 5000); // พัก 5 วินาที
+        console.log("ส่ง MQTT:", msg);
+        sendMQTT(msg);
+
+        await delay(3000);
+
+        // จบการรอค้าง
+        isWaiting = false;
       }
+    }
+
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     function stop() {
@@ -86,11 +95,11 @@
       client.connect({
         useSSL: true,
         onSuccess: () => {
-          console.log("Connected to MQTT broker");
+          console.log("เชื่อมต่อ MQTT สำเร็จ");
           isConnected = true;
         },
         onFailure: (e) => {
-          console.error("MQTT connection failed:", e.errorMessage);
+          console.error("การเชื่อมต่อ MQTT ล้มเหลว:", e.errorMessage);
           isConnected = false;
         }
       });
@@ -102,9 +111,9 @@
         const msg = new Paho.MQTT.Message(message);
         msg.destinationName = topic;
         client.send(msg);
-        console.log("MQTT message sent:", message);
+        console.log("ส่งสำเร็จ:", message);
       } else {
-        console.warn("MQTT not connected. Message not sent:", message);
+        console.warn("ยังไม่เชื่อมต่อ MQTT:", message);
       }
     }
   </script>
