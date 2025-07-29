@@ -21,6 +21,7 @@
     let client, isConnected = false;
     let lastSent = "", lastSentTime = 0;
     let isPaused = false;
+    const sendCooldown = 5000; // 5 วินาที
 
     async function init(facingMode) {
       model = await tmImage.load(URL + "model.json", URL + "metadata.json");
@@ -39,8 +40,8 @@
     }
 
     async function loop() {
-      webcam.update();
       if (!isPaused) {
+        webcam.update();
         await predict();
       }
       window.requestAnimationFrame(loop);
@@ -54,23 +55,20 @@
         labelContainer.childNodes[i].innerHTML = `${p.className}: ${p.probability.toFixed(2)}`;
       });
 
-      if (topClass.probability > 0.8) {
-        const now = Date.now();
-        if (topClass.className !== lastSent || now - lastSentTime > 1000) {
-          const msg = JSON.stringify({
-            type: topClass.className,
-            confidence: topClass.probability.toFixed(2)
-          });
-          sendMQTT(msg);
-          lastSent = topClass.className;
-          lastSentTime = now;
-          isPaused = true;
+      const now = Date.now();
+      if (topClass.probability > 0.9 && (topClass.className !== lastSent || now - lastSentTime > sendCooldown)) {
+        const msg = JSON.stringify({
+          type: topClass.className,
+          confidence: topClass.probability.toFixed(2)
+        });
+        sendMQTT(msg);
+        lastSent = topClass.className;
+        lastSentTime = now;
 
-          console.log("Pausing detection for 5 seconds...");
-          await new Promise(resolve => setTimeout(resolve, 5000));
+        isPaused = true;
+        setTimeout(() => {
           isPaused = false;
-          console.log("Resuming detection");
-        }
+        }, 5000); // พัก 5 วินาที
       }
     }
 
@@ -79,7 +77,6 @@
         webcam.stop();
         document.getElementById("webcam-container").innerHTML = "";
         document.getElementById("label-container").innerHTML = "";
-        isPaused = false;
       }
     }
 
