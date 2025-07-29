@@ -1,14 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Teachable Machine with MQTT</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Teachable Machine + MQTT</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
   <script src="https://unpkg.com/paho-mqtt/mqttws31.min.js"></script>
+  <style>
+    body { font-family: Arial; text-align: center; margin: 0; padding: 0; }
+    #webcam-container { max-width: 100%; margin: 10px auto; }
+    video { max-width: 100%; height: auto; }
+    button { padding: 10px 20px; margin: 5px; font-size: 1em; }
+    #label-container { margin-top: 10px; font-size: 1.2em; }
+  </style>
 </head>
 <body>
-  <h3>Teachable Machine Image Model + MQTT (Mobile)</h3>
+  <h2>Teachable Machine + MQTT</h2>
   <button onclick="init('environment')">Start (Back Camera)</button>
   <button onclick="init('user')">Start (Front Camera)</button>
   <button onclick="stop()">Stop</button>
@@ -17,50 +24,99 @@
 
   <script type="text/javascript">
     const URL = "https://teachablemachine.withgoogle.com/models/klxDOYTDp/";
+    const MQTT_BROKER = "mqtt-dashboard.com";
+    const MQTT_PORT = 8000; // MQTT over WebSocket port
+    const MQTT_TOPIC = "ktmn"; // เปลี่ยนได้ตามต้องการ
+
     let model, webcam, labelContainer, maxPredictions;
-    let client, isConnected = false;
-    let lastSent = "", lastSentTime = 0;
+    let mqttClient;
+    let sending = false; // ป้องกันส่งซ้ำ
+    let paused = false;
+
+    // เชื่อมต่อ MQTT
+    function connectMQTT() {
+      mqttClient = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, "web_" + Math.floor(Math.random() * 10000));
+      mqttClient.connect({
+        onSuccess: () => {
+          console.log("MQTT connected");
+        },
+        onFailure: (e) => {
+          console.error("MQTT connection failed:", e.errorMessage);
+        }
+      });
+    }
 
     async function init(facingMode) {
-      model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+      connectMQTT();
+
+      const modelURL = URL + "model.json";
+      const metadataURL = URL + "metadata.json";
+      model = await tmImage.load(modelURL, metadataURL);
       maxPredictions = model.getTotalClasses();
 
       webcam = new tmImage.Webcam(224, 224, false);
-      await webcam.setup({ facingMode });
-      await webcam.play();
+      try {
+        await webcam.setup({ facingMode: facingMode });
+        await webcam.play();
+        window.requestAnimationFrame(loop);
+      } catch (e) {
+        console.error("Webcam error:", e);
+        document.getElementById("label-container").innerText = "Error: " + e.message;
+        return;
+      }
+
+      document.getElementById("webcam-container").innerHTML = '';
       document.getElementById("webcam-container").appendChild(webcam.canvas);
-      window.requestAnimationFrame(loop);
 
       labelContainer = document.getElementById("label-container");
-      labelContainer.innerHTML = Array(maxPredictions).fill().map(() => "<div>").join("");
-
-      mqttConnect();
+      labelContainer.innerHTML = "";
+      for (let i = 0; i < maxPredictions; i++) {
+        labelContainer.appendChild(document.createElement("div"));
+      }
     }
 
     async function loop() {
-      webcam.update();
-      await predict();
+      if (!paused) {
+        webcam.update();
+        await predict();
+      }
       window.requestAnimationFrame(loop);
     }
 
     async function predict() {
       const prediction = await model.predict(webcam.canvas);
-      const topClass = prediction.reduce((max, p) => p.probability > max.probability ? p : max);
+      let shouldPause = false;
 
-      prediction.forEach((p, i) => {
-        labelContainer.childNodes[i].innerHTML = `${p.className}: ${p.probability.toFixed(2)}`;
-      });
+      for (let i = 0; i < maxPredictions; i++) {
+        const prob = prediction[i].probability;
+        const className = prediction[i].className;
+        const text = `${className}: ${prob.toFixed(2)}`;
+        labelContainer.childNodes[i].innerText = text;
 
-      if (topClass.probability > 0.8) {
-        const now = Date.now();
-        if (topClass.className !== lastSent || now - lastSentTime > 1000) {
-          const msg = JSON.stringify({
-            type: topClass.className,
-            confidence: topClass.probability.toFixed(2)
-          });
-          sendMQTT(msg);
-          lastSent = topClass.className;
-          lastSentTime = now;
+        if (prob >= 0.9 && !sending) {
+          shouldPause = true;
+          sending = true;
+
+          console.log("High confidence detected:", className, prob);
+
+          // หยุดชั่วคราว
+          paused = true;
+
+          // ส่งข้อความไป HiveMQ
+          setTimeout(() => {
+            if (mqttClient && mqttClient.isConnected()) {
+              const message = new Paho.MQTT.Message(className);
+              message.destinationName = MQTT_TOPIC;
+              mqttClient.send(message);
+              console.log("MQTT sent:", className);
+            }
+
+            // เริ่มใหม่หลังจากส่งเสร็จ
+            setTimeout(() => {
+              sending = false;
+              paused = false;
+            }, 2000); // 2 วิหลังส่งเสร็จ
+          }, 3000); // รอ 3 วิถึงส่ง
         }
       }
     }
@@ -68,37 +124,11 @@
     function stop() {
       if (webcam) {
         webcam.stop();
-        document.getElementById("webcam-container").innerHTML = "";
-        document.getElementById("label-container").innerHTML = "";
+        document.getElementById("webcam-container").innerHTML = '';
+        document.getElementById("label-container").innerHTML = '';
       }
-    }
-
-    function mqttConnect() {
-      const clientId = "web_" + Math.floor(Math.random() * 10000);
-      client = new Paho.MQTT.Client("broker.hivemq.com", 8884, clientId);
-      client.connect({
-        useSSL: true,
-        onSuccess: () => {
-          console.log("Connected to MQTT broker");
-          isConnected = true;
-        },
-        onFailure: (e) => {
-          console.error("MQTT connection failed:", e.errorMessage);
-          isConnected = false;
-        }
-      });
-    }
-
-    function sendMQTT(message) {
-      if (client && isConnected) {
-        const topic = "ktmn";
-        const msg = new Paho.MQTT.Message(message);
-        msg.destinationName = topic;
-        client.send(msg);
-        console.log("MQTT message sent:", message);
-      } else {
-        console.warn("MQTT not connected. Message not sent:", message);
-      }
+      paused = false;
+      sending = false;
     }
   </script>
 </body>
