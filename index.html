@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Teachable Machine + MQTT (wss 8884)</title>
+  <title>Teachable Machine + MQTT (Secure 8884) - Debug</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest"></script>
@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h2>Teachable Machine + MQTT (Secure 8884)</h2>
+  <h2>Teachable Machine + MQTT (Secure 8884) - Debug Mode</h2>
   <button onclick="init('environment')">Start (Back Camera)</button>
   <button onclick="init('user')">Start (Front Camera)</button>
   <button onclick="stop()">Stop</button>
@@ -44,6 +44,7 @@
       const statusDiv = document.getElementById("status");
       statusDiv.innerText = message;
       statusDiv.className = `status ${type}`;
+      console.log(`[Status] ${message}`);
     }
 
     function connectMQTT() {
@@ -96,8 +97,19 @@
 
         updateStatus("กำลังเปิดกล้อง...");
         webcam = new tmImage.Webcam(224, 224, false);
-        await webcam.setup({ facingMode: facingMode });
-        await webcam.play();
+
+        await webcam.setup({ facingMode: facingMode })
+          .then(() => console.log("Webcam setup success"))
+          .catch(e => {
+            throw new Error("ไม่สามารถเปิดกล้องได้: " + e.message);
+          });
+
+        await webcam.play()
+          .then(() => console.log("Webcam play success"))
+          .catch(e => {
+            throw new Error("เล่นกล้องไม่สำเร็จ: " + e.message);
+          });
+
         document.getElementById("webcam-container").innerHTML = '';
         document.getElementById("webcam-container").appendChild(webcam.canvas);
 
@@ -124,6 +136,7 @@
           await predict();
         } catch (error) {
           updateStatus("Prediction error: " + error.message, "error");
+          console.error("Prediction error:", error);
         }
       }
       if (isRunning) window.requestAnimationFrame(loop);
@@ -157,6 +170,7 @@
               }
             } catch (error) {
               updateStatus("ส่ง MQTT ล้มเหลว: " + error.message, "error");
+              console.error("MQTT send error:", error);
             } finally {
               sending = false;
               paused = false;
@@ -177,7 +191,7 @@
       if (timeoutId) clearTimeout(timeoutId);
 
       if (webcam) {
-        try { webcam.stop(); } catch (e) {}
+        try { webcam.stop(); console.log("Webcam stopped"); } catch (e) { console.error("Error stopping webcam", e); }
         webcam = null;
       }
 
@@ -185,7 +199,7 @@
       document.getElementById("label-container").innerHTML = '';
 
       if (mqttClient && mqttClient.isConnected()) {
-        try { mqttClient.disconnect(); } catch (e) {}
+        try { mqttClient.disconnect(); console.log("MQTT disconnected"); } catch (e) { console.error("Error disconnecting MQTT", e); }
         mqttClient = null;
       }
 
@@ -198,3 +212,4 @@
   </script>
 </body>
 </html>
+
